@@ -1,0 +1,120 @@
+spring:
+  application:
+    name: inventario-service
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://inventario-db:5432/inventario_db?autoCommit=false}
+    username: ${SPRING_DATASOURCE_USERNAME:admin}
+    password: ${SPRING_DATASOURCE_PASSWORD:admin123}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        show_sql: false
+        jdbc:
+          lob:
+            non_contextual_creation: true
+    show-sql: false
+    open-in-view: false
+
+server:
+  port: 8082
+  error:
+    include-message: always
+    include-binding-errors: always
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+
+# Configuración del cliente de productos
+productos:
+  service:
+    url: ${PRODUCTOS_SERVICE_URL:http://productos-service:8081}
+  api:
+    key: ${PRODUCTOS_API_KEY:secret-key}
+
+api:
+  key: ${API_KEY:secret-key}
+
+# Configuración de Resilience4j
+resilience4j:
+  circuitbreaker:
+    instances:
+      productos-service:
+        register-health-indicator: true
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        event-consumer-buffer-size: 10
+  retry:
+    instances:
+      productos-service:
+        max-attempts: 3
+        wait-duration: 2s
+        retry-exceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+  timelimiter:
+    instances:
+      productos-service:
+        timeout-duration: 10s
+        cancel-running-future: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,circuitbreakers,retry
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    circuitbreakers:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.linktic.inventario: DEBUG
+    org.springframework.web: WARN
+    io.github.resilience4j: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%logger{36}] - %msg%n"
+  file:
+    name: /app/logs/inventario-service.log
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
