@@ -234,15 +234,17 @@ Las pruebas incluyen:
 Crear archivo `.env`:
 
 ```bash
-# API Keys
+# API Keys para comunicación entre servicios
 PRODUCTOS_API_KEY=secret-key
 INVENTARIO_API_KEY=secret-key
+# Configuración de Base de Datos
+POSTGRES_PASSWORD=admin123
 
-# Database
-DB_PASSWORD=admin123
-
-# JVM
+# Configuración JVM
 JAVA_OPTS=-Xmx512m -Xms256m
+
+# Ambiente
+ENVIRONMENT=docker
 ```
 
 ### Perfiles de Spring
@@ -263,28 +265,6 @@ resilience4j:
         sliding-window-size: 10
 ```
 
-## 📁 Estructura del Proyecto
-
-```
-microservicios/
-├── productos-service/           # Microservicio de productos
-│   ├── src/main/java/          # Código fuente
-│   ├── src/test/java/          # Pruebas
-│   ├── Dockerfile              # Imagen Docker
-│   └── pom.xml                 # Dependencias Maven
-├── inventario-service/         # Microservicio de inventario
-│   ├── src/main/java/          # Código fuente
-│   ├── src/test/java/          # Pruebas
-│   ├── Dockerfile              # Imagen Docker
-│   └── pom.xml                 # Dependencias Maven
-├── scripts/                    # Scripts de utilidad
-│   ├── health-check.sh         # Verificación de salud
-│   └── load-test-data.sh       # Datos de prueba
-├── monitoring/                 # Configuración de monitoreo
-├── docker-compose.yml          # Orquestación de servicios
-├── Makefile                    # Comandos de desarrollo
-└── README.md                   # Esta documentación
-```
 
 ## 🔐 Seguridad
 
