@@ -24,7 +24,7 @@ Solución compuesta por dos microservicios independientes que interactúan entre
 ```mermaid
 graph TB
     subgraph "Cliente"
-        C[Cliente/Frontend]
+        C[Cliente]
     end
     
     subgraph "API Gateway (Futuro)"

@@ -3,13 +3,12 @@ version: '3.8'
 services:
   # Base de datos para productos
   productos-db:
-    image: postgres:15  # Cambiar de alpine a estándar
+    image: postgres:15
     container_name: productos-db
     environment:
       POSTGRES_DB: productos_db
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin123
-      # Configurar locales explícitamente
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
       POSTGRES_INITDB_ARGS: "--locale=C.UTF-8"
@@ -29,13 +28,12 @@ services:
 
   # Base de datos para inventario
   inventario-db:
-    image: postgres:15  # Cambiar de alpine a estándar
+    image: postgres:15
     container_name: inventario-db
     environment:
       POSTGRES_DB: inventario_db
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin123
-      # Configurar locales explícitamente
       LC_ALL: C.UTF-8
       LANG: C.UTF-8
       POSTGRES_INITDB_ARGS: "--locale=C.UTF-8"
