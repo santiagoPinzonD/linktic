@@ -2,66 +2,260 @@
 
 ## 📋 Descripción
 
-Solución compuesta por dos microservicios independientes que interactúan entre sí utilizando JSON API como estándar para la comunicación. Desarrollado como prueba técnica para demostrar habilidades en desarrollo backend con Spring Boot.
+Solución compuesta por dos microservicios independientes que interactúan entre sí utilizando **JSON API** como estándar para la comunicación. Desarrollado como prueba técnica para demostrar habilidades en desarrollo backend con Spring Boot, siguiendo las mejores prácticas de arquitectura de microservicios.
 
 ### 🎯 Objetivos Cumplidos
 
 - ✅ **Microservicio de Productos**: CRUD completo con paginación
 - ✅ **Microservicio de Inventario**: Gestión de stock con integración
 - ✅ **JSON API**: Estándar implementado en todas las respuestas
-- ✅ **Docker**: Servicios completamente containerizados
-- ✅ **Autenticación**: API Keys entre servicios
-- ✅ **Tolerancia a fallos**: Resilience4j (Circuit Breaker, Retry)
-- ✅ **Pruebas**: Unitarias e integración con alta cobertura
+- ✅ **Docker**: Servicios completamente containerizados con Docker Compose
+- ✅ **Autenticación**: API Keys para comunicación segura entre servicios
+- ✅ **Tolerancia a fallos**: Resilience4j (Circuit Breaker, Retry, Timeout)
+- ✅ **Pruebas**: Unitarias e integración con alta cobertura (+80%)
 - ✅ **Documentación**: Swagger completa
+- ✅ **Logs estructurados**: Sistema de logging con niveles configurables
+- ✅ **Health Checks**: Monitoreo de salud de servicios y dependencias
 
-## 🏗️ Arquitectura
+## 🏗️ Arquitectura del Sistema
 
+### Diagrama de Arquitectura
+
+```mermaid
+graph TB
+    subgraph "Cliente"
+        C[Cliente/Frontend]
+    end
+    
+    subgraph "API Gateway (Futuro)"
+        AG[API Gateway]
+    end
+    
+    subgraph "Microservicios"
+        subgraph "Productos Service"
+            PS[Productos Controller]
+            PSS[Productos Service]
+            PSR[Productos Repository]
+        end
+        
+        subgraph "Inventario Service"
+            IS[Inventario Controller]
+            ISS[Inventario Service]
+            ISR[Inventario Repository]
+            PC[Productos Client]
+        end
+    end
+    
+    subgraph "Base de Datos"
+        PDB[(PostgreSQL<br/>productos_db)]
+        IDB[(PostgreSQL<br/>inventario_db)]
+    end
+    
+    subgraph "Infraestructura"
+        CB[Circuit Breaker]
+        RT[Retry Mechanism]
+        MT[Metrics/Health]
+    end
+    
+    C --> AG
+    AG --> PS
+    AG --> IS
+    
+    PS --> PSS
+    PSS --> PSR
+    PSR --> PDB
+    
+    IS --> ISS
+    ISS --> ISR
+    ISR --> IDB
+    
+    ISS --> PC
+    PC --> CB
+    CB --> RT
+    RT --> PS
+    
+    PS --> MT
+    IS --> MT
+    
+    classDef service fill:#e1f5fe
+    classDef database fill:#f3e5f5
+    classDef infrastructure fill:#e8f5e8
+    
+    class PS,IS,PSS,ISS service
+    class PDB,IDB database
+    class CB,RT,MT infrastructure
 ```
-┌─────────────────┐    HTTP/JSON API   ┌─────────────────┐
-│                 │◄──────────────────►│                 │
-│ Inventario      │                    │ Productos       │
-│ Service         │                    │ Service         │
-│ (Puerto 8082)   │                    │ (Puerto 8081)   │
-│                 │                    │                 │
-└─────────┬───────┘                    └─────────┬───────┘
-          │                                      │
-          ▼                                      ▼
-┌─────────────────┐                    ┌─────────────────┐
-│ PostgreSQL      │                    │ PostgreSQL      │
-│ inventario_db   │                    │ productos_db    │
-└─────────────────┘                    └─────────────────┘
+
+### Diagrama de Interacción entre Servicios
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant IS as Inventario Service
+    participant CB as Circuit Breaker
+    participant PS as Productos Service
+    participant DB1 as inventario_db
+    participant DB2 as productos_db
+    
+    Note over C,DB2: Consultar Inventario de Producto
+    
+    C->>IS: GET /api/v1/inventarios/productos/1
+    Note over C,IS: X-API-Key: secret-key
+    
+    IS->>DB1: SELECT inventario WHERE producto_id=1
+    DB1->>IS: Inventario encontrado
+    
+    IS->>CB: Consultar producto ID=1
+    CB->>PS: GET /api/v1/productos/1
+    Note over CB,PS: X-API-Key: secret-key<br/>Timeout: 5s
+    
+    PS->>DB2: SELECT producto WHERE id=1
+    DB2->>PS: Producto encontrado
+    PS->>CB: JSON API Response
+    CB->>IS: Producto datos
+    
+    IS->>C: JSON API Response<br/>(Inventario + Producto data)
+    
+    Note over C,DB2: Procesar Compra (Con Tolerancia a Fallos)
+    
+    C->>IS: PATCH /api/v1/inventarios/productos/1/compra
+    IS->>DB1: BEGIN TRANSACTION
+    IS->>DB1: SELECT FOR UPDATE inventario
+    
+    alt Circuit Breaker CLOSED
+        IS->>CB: Validar producto existe
+        CB->>PS: GET /api/v1/productos/1
+        PS->>CB: Producto válido
+        CB->>IS: Producto confirmado
+        
+        IS->>DB1: UPDATE inventario SET cantidad = cantidad - X
+        IS->>DB1: COMMIT
+        IS->>IS: PUBLISH InventarioCambiadoEvent
+        IS->>C: Success Response
+        
+    else Circuit Breaker OPEN
+        IS->>IS: Log: Circuit Breaker OPEN
+        IS->>DB1: ROLLBACK
+        IS->>C: 503 Service Unavailable
+        
+    else Retry con Backoff
+        CB->>PS: Retry 1 (1s delay)
+        CB->>PS: Retry 2 (2s delay)  
+        CB->>PS: Retry 3 (4s delay)
+        alt Success
+            PS->>CB: Success
+        else All retries failed
+            CB->>IS: ProductoServiceException
+            IS->>C: 503 Service Unavailable
+        end
+    end
 ```
 
-### 🔄 Flujo de Comunicación
+## 🔧 Decisiones Técnicas y Justificaciones
 
-1. **Inventario Service** consulta productos via HTTP → **Productos Service**
-2. **Circuit Breaker** protege contra fallos del servicio externo
-3. **Retry** maneja reintentos automáticos
-4. **API Keys** aseguran la comunicación entre servicios
+### 🗄️ Base de Datos: PostgreSQL
 
-## 🚀 Inicio Rápido
+**Decisión**: Usar PostgreSQL como base de datos relacional.
+
+**Justificación**:
+- ✅ **Integridad referencial**: Relaciones claras entre productos e inventarios
+- ✅ **Rendimiento**: Excelente para consultas complejas y agregaciones
+- ✅ **Escalabilidad**: Soporte para particionado y replicación
+- ✅ **Madurez**: Ecosistema robusto con Spring Data JPA
+
+
+### 🛡️ Tolerancia a Fallos: Resilience4j
+
+**Decisión**: Implementar Circuit Breaker, Retry y Timeout.
+
+**Justificación**:
+- ✅ **Circuit Breaker**: Previene cascada de fallos
+- ✅ **Retry con backoff**: Maneja fallos transitorios de red
+- ✅ **Timeout**: Evita bloqueos indefinidos
+- ✅ **Métricas**: Observabilidad del estado de servicios externos
+
+### 🔐 Seguridad: API Keys
+
+**Decisión**: Autenticación mediante API Keys en headers.
+
+**Justificación**:
+- ✅ **Simplicidad**: Apropiado para comunicación entre servicios internos
+- ✅ **Performance**: Sin overhead de tokens JWT o OAuth
+- ✅ **Configurabilidad**: Fácil rotación via variables de entorno
+
+### 🧪 Testing: Testcontainers + WireMock
+
+**Decisión**: Pruebas de integración con containers reales.
+
+**Justificación**:
+- ✅ **Realismo**: Testcontainers usa PostgreSQL real
+- ✅ **Aislamiento**: Cada test tiene su BD limpia
+- ✅ **Mocking externo**: WireMock simula servicios externos
+- ✅ **CI/CD Ready**: Funciona en pipelines automáticos
+
+### 🐳 Containerización: Docker + Docker Compose
+
+**Decisión**: Containerización completa con orquestación.
+
+**Justificación**:
+- ✅ **Portabilidad**: Funciona igual en dev, test y prod
+- ✅ **Aislamiento**: Dependencias encapsuladas
+- ✅ **Orquestación**: Docker Compose maneja servicios y red
+
+## 📐 Patrones de Diseño Implementados
+
+### 🎯 Domain-Driven Design (DDD)
+- **Agregados**: Producto y Inventario como agregados independientes
+- **Servicios de dominio**: Lógica de negocio encapsulada
+- **Repositorios**: Abstracción de persistencia
+
+### 🔌 Circuit Breaker Pattern
+```java
+@Component
+public class ProductoClient {
+    public ProductoDTO obtenerProducto(Long productoId) {
+        return circuitBreakerFactory.create("productos-service").run(
+            () -> llamarServicioProductos(productoId),
+            throwable -> manejarFallo(productoId, throwable)
+        );
+    }
+}
+```
+
+### 🔄 Retry Pattern
+```yaml
+resilience4j:
+  retry:
+    instances:
+      productos-service:
+        max-attempts: 3
+        wait-duration: 1s
+```
+
+### 📡 Event Publishing Pattern
+```java
+@Component
+@Slf4j
+public class InventarioEventListener {
+    ...
+}
+```
+
+## 🚀 Instrucciones de Instalación y Ejecución
 
 ### Prerrequisitos
 
-- Docker & Docker Compose
-- Java 17+ (para desarrollo local)
-- Maven 3.8+ (para desarrollo local)
+- **Docker** 20.10+ y **Docker Compose** 2.0+
+- **Java 17+** (para desarrollo local)
+- **Maven 3.8+** (para desarrollo local)
+- **Git** (para clonar repositorio)
 
-### 1️⃣ Clonar y Configurar
-
-```bash
-git clone <repository-url>
-cd linktic
-
-# Configurar proyecto
-make setup
-```
-
-### 2️⃣ Iniciar Servicios
+### 🚀 Inicio Rápido (Recomendado)
 
 ```bash
 # Opción 1: Usar Makefile (recomendado)
+make setup
+
 make run
 
 # Opción 2: Docker Compose directo
@@ -84,253 +278,176 @@ make status
 make load-data
 ```
 
-## 🌐 URLs de Acceso
-
-| Servicio | URL | Documentación |
-|----------|-----|---------------|
-| **Productos** | http://localhost:8081 | http://localhost:8081/swagger-ui/index.html |
-| **Inventario** | http://localhost:8082 | http://localhost:8082/swagger-ui/index.html |
-| **Health Productos** | http://localhost:8081/actuator/health | - |
-| **Health Inventario** | http://localhost:8082/actuator/health | - |
-
-## 📡 API Reference
-
-### 🛍️ Productos Service
+### 🛠️ Desarrollo Local
 
 ```bash
-# API Key: secret-key
+# Iniciar solo las bases de datos
+docker-compose up -d postgres-productos postgres-inventario
 
-# Crear producto
-POST /api/v1/productos
-Content-Type: application/json
+# Ejecutar servicios localmente
+cd productos-service
+mvn spring-boot:run
+
+# En otra terminal
+cd inventario-service  
+mvn spring-boot:run
+```
+
+### 🧪 Ejecutar Pruebas
+
+```bash
+# Todas las pruebas
+mvn test
+
+# Con reporte de cobertura
+mvn clean test jacoco:report
+
+# Solo pruebas de integración
+mvn test -Dtest="*IntegrationTest"
+
+# Ver reporte de cobertura
+open target/site/jacoco/index.html
+```
+
+
+## 🌐 Documentación de API
+
+### 📍 URLs de Acceso
+
+| Servicio | URL Base | Swagger UI | Health Check |
+|----------|----------|------------|--------------|
+| **Productos** | http://localhost:8081 | [Swagger](http://localhost:8081/swagger-ui/index.html) | [Health](http://localhost:8081/actuator/health) |
+| **Inventario** | http://localhost:8082 | [Swagger](http://localhost:8082/swagger-ui/index.html) | [Health](http://localhost:8082/actuator/health) |
+
+### 🔑 Autenticación
+
+Todos los endpoints requieren header de autenticación:
+```
 X-API-Key: secret-key
+```
 
-{
-  "data": {
-    "nombre": "Laptop Gaming",
-    "precio": 1299.99
-  }
-}
+### 📡 Ejemplos de API
+
+#### 🛍️ Productos Service
+
+```bash
+# Crear producto
+curl -X POST http://localhost:8081/api/v1/productos \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secret-key" \
+  -d '{
+    "data": {
+      "nombre": "Laptop Gaming",
+      "precio": 1299.99
+    }
+  }'
 
 # Obtener producto
-GET /api/v1/productos/{id}
-X-API-Key: secret-key
+curl -H "X-API-Key: secret-key" \
+  http://localhost:8081/api/v1/productos/1
 
-# Listar productos
-GET /api/v1/productos?page=0&size=10
-X-API-Key: secret-key
+# Listar productos con paginación
+curl -H "X-API-Key: secret-key" \
+  "http://localhost:8081/api/v1/productos?page=0&size=10&sort=nombre&direction=ASC"
 ```
 
-### 📦 Inventario Service
+#### 📦 Inventario Service
 
 ```bash
-# API Key: secret-key
+# Crear inventario para producto
+curl -X POST http://localhost:8082/api/v1/inventarios/productos/1 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secret-key" \
+  -d '{
+    "data": {
+      "cantidad": 50,
+      "cantidadMinima": 10,
+      "cantidadMaxima": 200
+    }
+  }'
 
-# Crear inventario
-POST /api/v1/inventarios/productos/{productoId}
-Content-Type: application/json
-X-API-Key: secret-key
-
-{
-  "data": {
-    "cantidad": 50,
-    "cantidadMinima": 10,
-    "cantidadMaxima": 200
-  }
-}
-
-# Consultar inventario
-GET /api/v1/inventarios/productos/{productoId}
-X-API-Key: secret-key
+# Consultar inventario (incluye datos del producto)
+curl -H "X-API-Key: secret-key" \
+  http://localhost:8082/api/v1/inventarios/productos/1
 
 # Procesar compra
-PATCH /api/v1/inventarios/productos/{productoId}/compra
-Content-Type: application/json
-X-API-Key: secret-key
+curl -X PATCH http://localhost:8082/api/v1/inventarios/productos/1/compra \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: secret-key" \
+  -d '{
+    "data": {
+      "cantidad": 5
+    }
+  }'
 
-{
-  "data": {
-    "cantidad": 5
-  }
-}
-
-# Ver stock bajo
-GET /api/v1/inventarios/stock-bajo
-X-API-Key: secret-key
-```
-
-## 🛠️ Comandos de Desarrollo
-
-```bash
-# Mostrar ayuda
-make help
-
-# Desarrollo
-make test             # Ejecutar pruebas
-
-# Docker
-make build            # Construir imágenes
-make run              # Iniciar servicios
-make stop             # Detener servicios
-make restart          # Reiniciar servicios
-make clean            # Limpiar recursos
-
-
-# Utilidades
-make load-data        # Cargar datos de prueba
-make health-check     # Verificar salud
-make status           # Ver estado de contenedores
-
+# Ver inventarios con stock bajo
+curl -H "X-API-Key: secret-key" \
+  http://localhost:8082/api/v1/inventarios/stock-bajo
 ```
 
 ## 📊 Monitoreo y Observabilidad
 
-### Health Checks
+### 🏥 Health Checks
 
-Los servicios exponen endpoints de salud:
-
-- **Productos**: `GET /actuator/health`
-- **Inventario**: `GET /actuator/health`
-
-### Métricas
-
-Métricas disponibles en `/actuator/metrics`:
-
-- JVM metrics
-- HTTP request metrics
-- Database connection pool metrics
-- Resilience4j circuit breaker metrics
-
-
-## 🧪 Testing
-
-### Pruebas Unitarias
+Los servicios exponen múltiples health checks:
 
 ```bash
-# Ejecutar todas las pruebas
-make test
+# Health general
+curl http://localhost:8081/actuator/health
 
-# Con reporte de cobertura
-make test-coverage
+# Health detallado (requiere autorización)
+curl -H "X-API-Key: secret-key" http://localhost:8081/actuator/health
 
-# Por servicio
-cd productos-service && mvn test
-cd inventario-service && mvn test
+# Health de circuit breakers
+curl http://localhost:8082/actuator/health
 ```
 
+## 📈 Propuestas de Mejoras y Escalabilidad
 
-### Pruebas de Integración
+### 🔄 Mejoras Inmediatas
 
-Las pruebas incluyen:
-- ✅ Testcontainers para PostgreSQL
-- ✅ WireMock para servicios externos
-- ✅ Rest Assured para APIs
-- ✅ Validación de circuit breakers
-
-## 🔧 Configuración
-
-### Variables de Entorno
-
-Crear archivo `.env`:
-
-```bash
-# API Keys para comunicación entre servicios
-PRODUCTOS_API_KEY=secret-key
-INVENTARIO_API_KEY=secret-key
-# Configuración de Base de Datos
-POSTGRES_PASSWORD=admin123
-
-# Configuración JVM
-JAVA_OPTS=-Xmx512m -Xms256m
-
-# Ambiente
-ENVIRONMENT=docker
+#### 1. **Event-Driven Architecture**
+```java
+// Reemplazar llamadas síncronas con eventos
+@EventHandler
+public void handle(ProductoCreatedEvent event) {
+    inventarioService.crearInventarioInicial(event.getProductoId());
+}
 ```
 
-### Perfiles de Spring
-
-- **default**: Desarrollo local
-- **docker**: Contenedores Docker
-- **test**: Pruebas automáticas
-
-### Circuit Breaker Configuration
-
-```yaml
-resilience4j:
-  circuitbreaker:
-    instances:
-      productos-service:
-        failure-rate-threshold: 50
-        wait-duration-in-open-state: 30s
-        sliding-window-size: 10
+#### 2. **Cache Distribuido**
+```java
+@Cacheable(value = "productos", key = "#id")
+public ProductoDTO obtenerProducto(Long id) {
+    return productoRepository.findById(id);
+}
 ```
 
+## 🔧 Troubleshooting
 
-## 🔐 Seguridad
+### ❗ Problemas Comunes
 
-### Autenticación
-
-- **API Keys** para comunicación entre servicios
-- **Headers**: `X-API-Key: <secret-key>`
-- **Usuarios no-root** en contenedores Docker
-
-### Validación
-
-- Bean Validation (`@Valid`, `@NotNull`, etc.)
-- Validación de rangos y formatos
-- Manejo global de excepciones
-
-## 🚨 Tolerancia a Fallos
-
-### Circuit Breaker
-
-- **Estado Cerrado**: Operaciones normales
-- **Estado Abierto**: Fallo rápido cuando hay problemas
-- **Estado Semi-abierto**: Prueba gradual de recuperación
-
-### Retry
-
-- **Reintentos automáticos** en fallos transitorios
-- **Backoff exponencial** para evitar sobrecarga
-- **Timeout** configurable por operación
-
-### Timeouts
-
-- **Connection timeout**: 5s
-- **Read timeout**: 5s
-- **Circuit breaker timeout**: 10s
-
-## 🐛 Troubleshooting
-
-### Problemas Comunes
-
-#### 1. Servicios no inician
-
+#### 1. **Servicios no inician**
 ```bash
 # Verificar logs
-# Reiniciar
-make restart
+docker-compose logs inventario-service
+
+# Verificar puertos
+netstat -tulpn | grep :808
+
+# Reiniciar limpio
+docker-compose down -v
+docker-compose up -d --build
 ```
 
-#### 2. Error de conexión entre servicios
-
+#### 2. **Error de conexión entre servicios**
 ```bash
 # Verificar network
-docker network ls
-
-# Verificar health checks
-make health-check
+docker network inspect linktic_default
 
 # Verificar API keys
-docker-compose logs inventario-service | grep "API"
+echo $PRODUCTOS_API_KEY
+
+# Test manual de conectividad
+docker-compose exec inventario-service curl productos-service:8081/actuator/health
 ```
-
-
-#### 3. Puertos ocupados
-
-```bash
-# Cambiar puertos en docker-compose.yml
-ports:
-  - "8083:8081"  # En lugar de 8081:8081
-```
-
