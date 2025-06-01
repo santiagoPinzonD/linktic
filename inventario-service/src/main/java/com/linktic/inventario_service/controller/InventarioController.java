@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -119,7 +120,7 @@ public class InventarioController {
 
     @GetMapping
     @Operation(summary = "Listar todos los inventarios con paginación")
-    public ResponseEntity<JsonApiDocument<Page<InventarioResponse>>> listarInventarios(
+    public ResponseEntity<JsonApiDocument<List<InventarioResponse>>> listarInventarios(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "id") String sort,
@@ -129,21 +130,39 @@ public class InventarioController {
         Sort.Direction sortDirection = Sort.Direction.fromString(direction);
         PageRequest pageRequest = PageRequest.of(page, size, Sort.by(sortDirection, sort));
 
-        Page<InventarioResponse> inventarios = inventarioService.listarInventarios(pageRequest);
+        Page<InventarioResponse> inventariosPage = inventarioService.listarInventarios(pageRequest);
+
+        // Extraer solo el contenido de la página
+        List<InventarioResponse> inventarios = inventariosPage.getContent();
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("totalPages", inventarios.getTotalPages());
-        meta.put("totalElements", inventarios.getTotalElements());
+        meta.put("totalPages", inventariosPage.getTotalPages());
+        meta.put("totalElements", inventariosPage.getTotalElements());
         meta.put("currentPage", page);
         meta.put("pageSize", size);
+        meta.put("hasNext", inventariosPage.hasNext());
+        meta.put("hasPrevious", inventariosPage.hasPrevious());
 
         JsonApiLinks links = JsonApiLinks.builder()
                 .self(String.format("/api/v1/inventarios?page=%d&size=%d", page, size))
                 .build();
 
-        JsonApiDocument<Page<InventarioResponse>> response =
-                JsonApiDocument.<Page<InventarioResponse>>builder()
-                        .data(inventarios)
+        // Agregar enlaces de navegación si existen
+        if (inventariosPage.hasNext()) {
+            links.setNext(String.format("/api/v1/inventarios?page=%d&size=%d", page + 1, size));
+        }
+        if (inventariosPage.hasPrevious()) {
+            links.setPrev(String.format("/api/v1/inventarios?page=%d&size=%d", page - 1, size));
+        }
+        if (inventariosPage.getTotalPages() > 0) {
+            links.setFirst(String.format("/api/v1/inventarios?page=0&size=%d", size));
+            links.setLast(String.format("/api/v1/inventarios?page=%d&size=%d",
+                    inventariosPage.getTotalPages() - 1, size));
+        }
+
+        JsonApiDocument<List<InventarioResponse>> response =
+                JsonApiDocument.<List<InventarioResponse>>builder()
+                        .data(inventarios)  // Solo la lista, no el Page completo
                         .meta(meta)
                         .links(links)
                         .build();
@@ -153,22 +172,27 @@ public class InventarioController {
 
     @GetMapping("/stock-bajo")
     @Operation(summary = "Listar inventarios con stock bajo")
-    public ResponseEntity<JsonApiDocument<Page<InventarioResponse>>> listarInventariosStockBajo(
+    public ResponseEntity<JsonApiDocument<List<InventarioResponse>>> listarInventariosStockBajo(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         log.info("GET /api/v1/inventarios/stock-bajo - Listando inventarios con stock bajo");
 
         PageRequest pageRequest = PageRequest.of(page, size);
-        Page<InventarioResponse> inventarios = inventarioService.listarInventariosConStockBajo(pageRequest);
+        Page<InventarioResponse> inventariosPage = inventarioService.listarInventariosConStockBajo(pageRequest);
+
+        // Extraer solo el contenido de la página
+        List<InventarioResponse> inventarios = inventariosPage.getContent();
 
         Map<String, Object> meta = new HashMap<>();
-        meta.put("totalPages", inventarios.getTotalPages());
-        meta.put("totalElements", inventarios.getTotalElements());
+        meta.put("totalPages", inventariosPage.getTotalPages());
+        meta.put("totalElements", inventariosPage.getTotalElements());
         meta.put("filtro", "stock_bajo");
+        meta.put("currentPage", page);
+        meta.put("pageSize", size);
 
-        JsonApiDocument<Page<InventarioResponse>> response =
-                JsonApiDocument.<Page<InventarioResponse>>builder()
-                        .data(inventarios)
+        JsonApiDocument<List<InventarioResponse>> response =
+                JsonApiDocument.<List<InventarioResponse>>builder()
+                        .data(inventarios)  // Solo la lista, no el Page completo
                         .meta(meta)
                         .build();
 

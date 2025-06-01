@@ -6,7 +6,7 @@
 # Variables
 COMPOSE_FILE := docker-compose.yml
 PROJECT_NAME := microservicios
-WAIT_TIME := 60
+WAIT_TIME := 30
 
 # Colores para output
 GREEN := \033[0;32m

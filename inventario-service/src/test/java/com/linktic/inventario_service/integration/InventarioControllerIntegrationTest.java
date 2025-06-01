@@ -21,7 +21,7 @@ import java.time.LocalDateTime;
 
 import static org.hamcrest.Matchers.*;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -240,7 +240,39 @@ public class InventarioControllerIntegrationTest {
 
     @Test
     void listarInventariosStockBajo_DebeRetornarSoloStockBajo() throws Exception {
-        // Given
+        // Given - Mockear productos antes de crear inventarios
+        ProductoDTO producto1 = ProductoDTO.builder()
+                .id(1L)
+                .type("productos")
+                .attributes(ProductoDTO.Attributes.builder()
+                        .nombre("Producto Normal")
+                        .precio(new BigDecimal("100.00"))
+                        .build())
+                .build();
+
+        ProductoDTO producto2 = ProductoDTO.builder()
+                .id(2L)
+                .type("productos")
+                .attributes(ProductoDTO.Attributes.builder()
+                        .nombre("Producto Stock Bajo 1")
+                        .precio(new BigDecimal("50.00"))
+                        .build())
+                .build();
+
+        ProductoDTO producto3 = ProductoDTO.builder()
+                .id(3L)
+                .type("productos")
+                .attributes(ProductoDTO.Attributes.builder()
+                        .nombre("Producto Stock Bajo 2")
+                        .precio(new BigDecimal("75.00"))
+                        .build())
+                .build();
+
+        // Mockear las llamadas al servicio de productos
+        when(productoClient.obtenerProducto(1L)).thenReturn(producto1);
+        when(productoClient.obtenerProducto(2L)).thenReturn(producto2);
+        when(productoClient.obtenerProducto(3L)).thenReturn(producto3);
+
         // Inventarios con stock normal
         Inventario inv1 = Inventario.builder()
                 .productoId(1L)
@@ -253,7 +285,7 @@ public class InventarioControllerIntegrationTest {
         // Inventarios con stock bajo
         Inventario inv2 = Inventario.builder()
                 .productoId(2L)
-                .cantidad(5)
+                .cantidad(5)  // cantidad (5) <= cantidadMinima (10) = stock bajo
                 .cantidadMinima(10)
                 .cantidadMaxima(500)
                 .build();
@@ -261,20 +293,31 @@ public class InventarioControllerIntegrationTest {
 
         Inventario inv3 = Inventario.builder()
                 .productoId(3L)
-                .cantidad(8)
+                .cantidad(8)  // cantidad (8) <= cantidadMinima (10) = stock bajo
                 .cantidadMinima(10)
                 .cantidadMaxima(500)
                 .build();
         inventarioRepository.save(inv3);
 
-        // When & Then
+        // When & Then - Estructura JSON corregida
         mockMvc.perform(get("/api/v1/inventarios/stock-bajo")
                         .header("X-API-Key", API_KEY)
                         .param("page", "0")
                         .param("size", "10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content", hasSize(2)))
-                .andExpect(jsonPath("$.data.content[*].attributes.stock_bajo", everyItem(is(true))))
-                .andExpect(jsonPath("$.meta.filtro").value("stock_bajo"));
+                .andExpect(jsonPath("$.data", hasSize(2)))  // data es array directo
+                .andExpect(jsonPath("$.data[*].attributes.stock_bajo", everyItem(is(true))))
+                .andExpect(jsonPath("$.data[0].attributes.cantidad").value(5))
+                .andExpect(jsonPath("$.data[1].attributes.cantidad").value(8))
+                .andExpect(jsonPath("$.data[*].relationships.producto.data.nombre",
+                        containsInAnyOrder("Producto Stock Bajo 1", "Producto Stock Bajo 2")))
+                .andExpect(jsonPath("$.meta.filtro").value("stock_bajo"))
+                .andExpect(jsonPath("$.meta.totalElements").value(2));
+
+        // Verificar que se llamó al cliente de productos para cada inventario con stock bajo
+        verify(productoClient, times(1)).obtenerProducto(2L);
+        verify(productoClient, times(1)).obtenerProducto(3L);
+        // No debería llamar al producto 1 porque no tiene stock bajo
+        verify(productoClient, never()).obtenerProducto(1L);
     }
 }
